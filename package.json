@@ -17,6 +17,7 @@
 	"underscore": "*",
 	"date-utils": "1.2.x",
 	"validator": "*",
-	"formidable": "*"
+	"formidable": "*",
+	"continuation-local-storage": "*"
   }
 }

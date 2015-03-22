@@ -5,6 +5,7 @@ var Sequelize = require('sequelize')
 exports.init = function(app) {
 	db = app.get('config').db;
 	sequelize = new Sequelize(db.database, db.username, db.password, db.options);
+	sequelize.cls = require('continuation-local-storage').createNamespace('transaction'); // transaction을 위한 설정
 	app.set('sequelize', sequelize);
 	app.set('db', this.registerAndGetModels(sequelize));
 	sequelize.sync().success(function() {

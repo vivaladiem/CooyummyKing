@@ -5,6 +5,8 @@ var crypto = require('crypto')
 	, _ = require('underscore')
 	, formidable = require('formidable')
 	, uploadDir
+	, userDir
+	, recipeDir
 	, sequelize
 	, User
 	, Recipe
@@ -16,7 +18,9 @@ var crypto = require('crypto')
 	, handlers;
 
 exports.init = function(app) {
-	uploadDir = app.get('uploadDir'); // /files/users
+	uploadDir = path.join(__dirname, '..', 'files');
+	userDir = path.join(uploadDir, 'users');
+	recipeDir = path.join(uploadDir, 'recipes');
 	sequelize = app.get('sequelize');
 	User = app.get('db').User;
 	Recipe = app.get('db').Recipe;
@@ -66,7 +70,9 @@ exports.handlers = handlers = {
 			, userName = req.body.username
 			, password = req.body.password
 			, phone = req.body.phone
-			, profile_text = req.body.profile_text;
+			, profile_text = req.body.profile_text
+			, profileImagePath
+			, profileImageName;
 
 		if (!validator.isEmail(email) || validator.isNull(userName) || validator.isNull(password)) {
 			console.log(getLogFormat(req) + '잘못된 요청 / email: ' + email);
@@ -80,47 +86,52 @@ exports.handlers = handlers = {
 				sendError(res, '이메일이 존재합니다. 해당 이메일로 로그인하시거나 다른 이메일로 가입 해주세요');
 				return;
 			}
-		}).error(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / email: ' + email);
-			console.log(err);
-			sendError(res, '서버 오류');
-		});
 
-		var token = crypto
-		.createHash('md5')
-		.update(email + (new Date()).getTime() + 'cymk')
-		.digest('hex');
+			var token = crypto
+			.createHash('md5')
+			.update(email + (new Date()).getTime() + 'cymk')
+			.digest('hex');
 
-		var userData = {
-			email: email,
-			username: userName,
-			password: password,
-			token: token,
-			phone: phone,
-			profile_text: profile_text
-		};
-
-		User.create(userData).success(function(user) {
-			//logger.info(getLogFormat(req) + '유저 생성 성공 / user_id: ' + user.values.id);
-			res.status(200).send({result: 1, user_id: user.get('id')});
-
-			// 프로필 이미지를 저장합니다
+			/* 프로필 이미지를 저장합니다 */
 			var form = formidable.IncomingForm();
 			//form.keepExtensions = true;
 			form.uploadDir = uploadDir
-			var profileDir = path.join(uploadDir, user.get('id'));
+			form.parse(req, function(error, fields, files) {
+				if (!files.image) return; //필요한가 모르겠다. 파일이 없으면 알아서 parse가 진행이 안되는건지.
+				profileImagePath = path.join(userDir, files.image.name);
+				profileImageName = files.image.name;
+				fs.rename(files.image.path, profileImagePath, function(err) {
+					if (err) {
+						profileImageName = null;
+						throw err;
+					}
+					//logger.info(getLogFormat(req) + '파일 저장 완료');
+				});
+			});
 
-			form.parse(req, function(err, fields, files) {
-				/* [TODO] 예외처리를 좀 더 확실하게 해야 할듯. 오류 생겨도 꼬이지 않게. */
-				fs.mkdir(profileDir), function(err) {
+			var userData = {
+				email: email,
+				username: userName,
+				password: password,
+				token: token,
+				phone: phone,
+				profile_text: profile_text,
+				profile_image_name: profileImageName
+			};
+
+			User.create(userData).success(function(user) {
+				//logger.info(getLogFormat(req) + '유저 생성 성공 / user_id: ' + user.values.id);
+				res.status(200).send({result: 1, user_id: user.get('id')});
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '유저 생성 실패 Sequelize 오류 / email: ' + email);
+				console.log(err);
+				fs.unlink(profileImagePath, function(err) {
 					if (err) throw err;
-					fs.rename(files.image.path, profileDir + '/profile', function(err) {
-						if (err) throw err;
-					});
-				};
+				});
+				sendError(res, '서버 오류');
 			});
 		}).error(function(err) {
-			console.log(getLogFormat(req) + '유저 생성 실패 Sequelize 오류 / email: ' + email);
+			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / email: ' + email);
 			console.log(err);
 			sendError(res, '서버 오류');
 		});
@@ -172,12 +183,9 @@ exports.handlers = handlers = {
 		User.find(userId).then(function(user) {
 			if (user) {
 				//logger.info(getLogFormat(req) + '유저 조회 성공 / user_id: ' + userId);
-				//[TODO] 프로필이미지의 확장자를 몰라 문제..
-				fs.readFile(path.join(uploadDir, user.get('id') + '', 'profile'), function (err, file) {
+				fs.readFile(path.join(userDir, user.get('profile_image_name')), function(err, file) {
 					if (err) {}
-					console.log("*** readFile done. file: " + require('util').inspect(file));
 					if (file) res.download(file.path);
-					console.log('res start');
 					res.status(200).send({
 						result: 1,
 						user: {
@@ -229,6 +237,7 @@ exports.handlers = handlers = {
 		if (!validator.isNumeric(userId) || validator.isNull(title)) {
 			console.log(getLogFormat(req) + '잘못된 요청 / user_id: ' + userId);
 			sendError(res, '잘못된 요청입니다');
+			return;
 		}
 
 		User.find({ where: {user_id: userId}, attributes: token }).then(function(user) {
@@ -237,24 +246,72 @@ exports.handlers = handlers = {
 				sendError(res, '권한이 없습니다.');
 				return;
 			}
-		});
 
-		var data = {
-			user_id: userId,
-			title: title,
-			description: description,
-			cooking_time: cooking_time
-		};
+			var data = {
+				user_id: userId,
+				title: title,
+				description: description,
+				cooking_time: cooking_time
+			};
 
-		Recipe.create(data).then(function(recipe) {
-			//loger.info(getLogFormat(req) + '레시피 생성 성공 / user_id: userId);
-			res.status(200).send({
-				result: 1,
-				recipe_id: recipe.get('id')
+			Recipe.create(data).then(function(recipe) {
+				//loger.info(getLogFormat(req) + '레시피 생성 성공 / user_id: userId);
+				res.status(200).send({
+					result: 1,
+					recipe_id: recipe.get('id'),
+					title: recipe.get('title'),
+					description: recipe.get('description'),
+					cooking_time: recipe.get('cooking_time')
+				});
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '레시피 생성 실패 Sequelize 오류 / user_id: ' + userId);
+				console.log(err);
+				sendError(res, '서버 오류');
 			});
 		});
 	},
-	getRecipes: function(req, res) {},
+	getRecipes: function(req, res) {
+		var recipes = [];
+		var topRecipeNum = 2; // 상위 10% 레시피의 갯수. 레시피 갯수 적을 때 오류방지 위해 2개로 초기화
+
+		var temp = [];
+
+		sequelize.transaction(function(t) {
+			Recipe.count().then(function(count) {
+				if (count >= 20)
+					topRecipeNum = parseInt(count / 10);
+			}).error(function(err) {});
+
+			Recipe.findAll({ order: 'like DESC', limit: topRecipeNum, attributes: 'id' }).then(function(results) {
+				temp = results;
+				recipes.push(_.sample(results, 2));
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류');
+				console.log(err);
+				sendError(res, '서버 오류');
+			});
+
+			Recipe.findAll({ where: { id: { $not: temp } }, attributes: 'id' }).then(function(results) {
+				recipes.push(_.sample(results, 10));
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류');
+				console.log(err);
+				sendError(res, '서버 오류');
+			});
+
+			Recipe.findAll({ where: { id: recipes } }).then(function(results) {
+				//logger.info(getLogFormat(req) + '레시피 조회 성공);
+				res.status(200).send({
+					result: 1,
+					recipes: results
+				});
+			}).error(function(err) {
+				console.log(getLogFormat(Req) + '레시피 조회 실패 Sequelize 오류');
+				console.log(err);
+				sendError(res,' 서버 오류');
+			});
+		});
+	},
 	getRecipe: function(req, res) {},
 	deleteRecipe: function(req, res) {},
 	updateRecipe: function(req, res) {},

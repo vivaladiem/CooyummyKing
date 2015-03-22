@@ -44,12 +44,10 @@ module.exports = function(sequelize, DataTypes) {
 			allowNull: true
 		},
 
-		/*
-		profile_image_path: {
+		profile_image_name: {
 			type: DataTypes.STRING,
 			allowNull: true
 		},
-		*/
 
 		point: {
 			type: DataTypes.INTEGER,
