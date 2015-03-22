@@ -4,4 +4,5 @@ config/
 .DS_Store
 logs/
 node_modules/
+npm-debug.log
 

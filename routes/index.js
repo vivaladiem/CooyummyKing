@@ -1,9 +1,270 @@
-var express = require('express');
-var router = express.Router();
+var crypto = require('crypto')
+	, path = require('path')
+	, fs = require('fs')
+	, validator = require('validator')
+	, _ = require('underscore')
+	, formidable = require('formidable')
+	, uploadDir
+	, sequelize
+	, User
+	, Recipe
+	, Comment
+	, Question
+	, Reply
+	, Like
+	, Fork
+	, handlers;
 
-/* GET home page. */
-router.get('/', function(req, res, next) {
-  res.render('index', { title: 'Express' });
-});
+exports.init = function(app) {
+	uploadDir = app.get('uploadDir'); // /files/users
+	sequelize = app.get('sequelize');
+	User = app.get('db').User;
+	Recipe = app.get('db').Recipe;
+	Comment = app.get('db').Comment;
+	Question = app.get('db').Question;
+	Reply = app.get('db').Reply;
+	Like = app.get('db').Like;
+	Fork = app.get('db').Fork;
 
-module.exports = router;
+	/* API */
+	app.post('/users', handlers.createUser);
+	app.post('/tokens', handlers.createToken);
+	app.post('/users/:user_id', handlers.getUser);
+	app.get('/users/count', handlers.getUsersCount);
+	app.post('/users/:user_id/delete', handlers.deleteUser);
+	app.post('/users/:user_id/update', handlers.updateUser);
+	app.post('/recipes', handlers.createRecipe);
+	app.post('/recipes/list', handlers.getRecipes);
+	app.post('/recipes/:recipe_id', handlers.getRecipe);
+	app.post('/recipes/delete', handlers.deleteRecipe);
+	app.post('/recipes/update', handlers.updateRecipe);
+	app.post('/recipes/like', handlers.likeRecipe);
+	app.post('/recipes/unlike', handlers.unlikeRecipe);
+	app.post('/recipes/comment', handlers.writeComment);
+	app.post('/recipes/comment/delete', handlers.deleteComment);
+	app.post('/recipes/question', handlers.writeQuestion);
+	app.post('/recipes/question/delete', handlers.deleteQuestion);
+	app.post('/recipes/question/reply', handlers.writeReply);
+	app.post('/recipes/question/reply/delete', handlers.deleteReply);
+
+};
+
+function sendError(res, errMsg) {
+	res.status(200).send({
+		result: 0,
+		msg: errMsg
+	});
+}
+
+function getLogFormat(req) {
+	return req.ip + ' - - "' + req.method + ' ' + req.path + '" ';
+}
+
+exports.handlers = handlers = {
+	createUser: function(req, res) {
+		var email = req.body.email
+			, userName = req.body.username
+			, password = req.body.password
+			, phone = req.body.phone
+			, profile_text = req.body.profile_text;
+
+		if (!validator.isEmail(email) || validator.isNull(userName) || validator.isNull(password)) {
+			console.log(getLogFormat(req) + '잘못된 요청 / email: ' + email);
+			sendError(res, '잘못된 요청입니다');
+			return;
+		}
+
+		User.find({ where: { email: email } }).success(function(user) {
+			if (user) {
+				console.log(getLogFormat(req) + '유저 생성 실패 / email: ' + email);
+				sendError(res, '이메일이 존재합니다. 해당 이메일로 로그인하시거나 다른 이메일로 가입 해주세요');
+				return;
+			}
+		}).error(function(err) {
+			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / email: ' + email);
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
+
+		var token = crypto
+		.createHash('md5')
+		.update(email + (new Date()).getTime() + 'cymk')
+		.digest('hex');
+
+		var userData = {
+			email: email,
+			username: userName,
+			password: password,
+			token: token,
+			phone: phone,
+			profile_text: profile_text
+		};
+
+		User.create(userData).success(function(user) {
+			//logger.info(getLogFormat(req) + '유저 생성 성공 / user_id: ' + user.values.id);
+			res.status(200).send({result: 1, user_id: user.get('id')});
+
+			// 프로필 이미지를 저장합니다
+			var form = formidable.IncomingForm();
+			//form.keepExtensions = true;
+			form.uploadDir = uploadDir
+			var profileDir = path.join(uploadDir, user.get('id'));
+
+			form.parse(req, function(err, fields, files) {
+				/* [TODO] 예외처리를 좀 더 확실하게 해야 할듯. 오류 생겨도 꼬이지 않게. */
+				fs.mkdir(profileDir), function(err) {
+					if (err) throw err;
+					fs.rename(files.image.path, profileDir + '/profile', function(err) {
+						if (err) throw err;
+					});
+				};
+			});
+		}).error(function(err) {
+			console.log(getLogFormat(req) + '유저 생성 실패 Sequelize 오류 / email: ' + email);
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
+	},
+
+	createToken: function(req, res) {
+		var email = req.body.email,
+			password = req.body.password;
+
+		if (!validator.isEmail(email) || validator.isNull(password)) {
+			console.log(getLogFormat(req) + '잘못된 요청 / email : ' + email);
+			sendError(res, '잘못된 요청입니다.');
+			return;
+		}
+
+		User.find({ where: { email: email } }).success(function(user) {
+			if (user) {
+				if (user.authenticate(password)) {
+					//logger.info(getLogFOrmat(req) + '유저 인증 성공 /user_id: ' + user.id);
+					res.status(200).send({
+						result: 1,
+						user_id: user.id,
+						token: user.token
+					});
+				} else {
+					console.log(getLogFormat(req) + '패스워드 불일치 / user_id: ' + user.id);
+					sendError(res, '패스워드가 일치하지 않습니다. 다시 확인해 주세요');
+				}
+			} else {
+				console.log(getLogFormat(req) + '유저 정보 없음 / email: ' + email);
+				sendError(res, '정보가 존재하지 않습니다. 회원가입 후 로그인 해주세요');
+			}
+		}).error(function(err) {
+			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / email: ' + email);
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
+	},
+
+	getUser: function(req, res) {
+		var userId = req.params.user_id;
+
+		if (!validator.isNumeric(userId)) {
+			console.log(getLogFormat(req) + '잘못된 요청 / user-id: ' + userId);
+			sendError(res, '잘못된 요청입니다');
+			return;
+		}
+
+		User.find(userId).then(function(user) {
+			if (user) {
+				//logger.info(getLogFormat(req) + '유저 조회 성공 / user_id: ' + userId);
+				//[TODO] 프로필이미지의 확장자를 몰라 문제..
+				fs.readFile(path.join(uploadDir, user.get('id') + '', 'profile'), function (err, file) {
+					if (err) {}
+					console.log("*** readFile done. file: " + require('util').inspect(file));
+					if (file) res.download(file.path);
+					console.log('res start');
+					res.status(200).send({
+						result: 1,
+						user: {
+							user_id: user.get('id'),
+							email: user.get('email'),
+							username: user.get('name'),
+							phone: user.get('phone'),
+							profile_text: user.get('profile_text'),
+							point: user.get('point'),
+							level: user.get('level'),
+							recipe_count: user.get('recipe_count')
+						}
+					});
+				});
+			} else {
+				console.log(getLogFormat(req) + '유저 정보 없음 / user_id: ' + userId);
+				sendError(res, '유저 정보가 없습니다');
+			}
+		}).error(function(err) {
+			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / user_id: ' + userId);
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
+	},
+
+	getUsersCount: function(req, res) {
+		User.count().then(function(count) {
+			res.status(200).send({
+				result: 1,
+				count: count
+			});
+		});
+	},
+
+	deleteUser: function(req, res) {
+
+	},
+
+	updateUser: function(req, res) {},
+
+	createRecipe: function(req, res) {
+		var userId = req.body.user_id,
+			token = req.body.token,
+			title = req.body.title,
+			description = req.body.description,
+			text = req.body.text,
+			cooking_time = parseInt(req.body.cooking_time);
+
+		if (!validator.isNumeric(userId) || validator.isNull(title)) {
+			console.log(getLogFormat(req) + '잘못된 요청 / user_id: ' + userId);
+			sendError(res, '잘못된 요청입니다');
+		}
+
+		User.find({ where: {user_id: userId}, attributes: token }).then(function(user) {
+			if (token != user.get('token')) {
+				console.log(getLogFormat(req) + '권한 없음 / user_id: ' + userId);
+				sendError(res, '권한이 없습니다.');
+				return;
+			}
+		});
+
+		var data = {
+			user_id: userId,
+			title: title,
+			description: description,
+			cooking_time: cooking_time
+		};
+
+		Recipe.create(data).then(function(recipe) {
+			//loger.info(getLogFormat(req) + '레시피 생성 성공 / user_id: userId);
+			res.status(200).send({
+				result: 1,
+				recipe_id: recipe.get('id')
+			});
+		});
+	},
+	getRecipes: function(req, res) {},
+	getRecipe: function(req, res) {},
+	deleteRecipe: function(req, res) {},
+	updateRecipe: function(req, res) {},
+	likeRecipe: function(req, res) {},
+	unlikeRecipe: function(req, res) {},
+	writeComment: function(req, res) {},
+	deleteComment: function(req, res) {},
+	writeQuestion: function(req, res) {},
+	deleteQuestion: function(req, res) {},
+	writeReply: function(req, res) {},
+	deleteReply: function(req, res) {}
+}
+
