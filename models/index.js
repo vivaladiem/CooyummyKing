@@ -17,13 +17,15 @@ exports.init = function(app) {
 exports.registerAndGetModels = function(sequelize) {
 	var User = sequelize.import(__dirname + '/users');
 	var Recipe = sequelize.import(__dirname + '/recipes');
+	var Like = sequelize.import(__dirname + '/likes');
 	var Comment = sequelize.import(__dirname + '/comments');
 	var Question = sequelize.import(__dirname + '/questions');
 	var Reply = sequelize.import(__dirname + '/replies');
-	var Like = sequelize.import(__dirname + '/likes');
 	var Fork = sequelize.import(__dirname + '/forks');
 
 	Recipe.belongsTo(User, {foreignKey: 'user_id'});
+	Like.belongsTo(User, {foreignKey: 'user_id'});
+	Like.belongsTo(Recipe, {foreignKey: 'recipe_id'});
 	Comment.belongsTo(User, {foreignKey: 'user_id'});
 	Comment.belongsTo(Recipe, {foreignKey: 'recipe_id'});
 	Question.belongsTo(User, {foreignKey: 'user_id'});
@@ -38,6 +40,7 @@ exports.registerAndGetModels = function(sequelize) {
 
 	return {
 		User: User,
+		Like: Like
 		Comment: Comment,
 		Question: Question,
 		Reply: Reply,

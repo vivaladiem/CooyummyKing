@@ -38,8 +38,8 @@ exports.init = function(app) {
 	app.post('/users/:user_id/delete', handlers.deleteUser);
 	app.post('/users/:user_id/update', handlers.updateUser);
 	app.post('/recipes', handlers.createRecipe);
-	app.post('/recipes/list', handlers.getRecipes);
-	app.post('/recipes/:recipe_id', handlers.getRecipe);
+	app.post('/recipes/list', handlers.getRecipeList); // 레시피 목록
+	app.post('/recipes/:recipe_id', handlers.getRecipe); // 레시피 상세보기
 	app.post('/recipes/delete', handlers.deleteRecipe);
 	app.post('/recipes/update', handlers.updateRecipe);
 	app.post('/recipes/like', handlers.likeRecipe);
@@ -270,12 +270,14 @@ exports.handlers = handlers = {
 			});
 		});
 	},
-	getRecipes: function(req, res) {
+
+	getRecipeList: function(req, res) {
 		var recipes = [];
-		var topRecipeNum = 2; // 상위 10% 레시피의 갯수. 레시피 갯수 적을 때 오류방지 위해 2개로 초기화
+		var topRecipeNum = 2; // 상위 10% 레시피의 갯수. 레시피 갯수 20개 미만일 때 오류방지 위해 2개로 초기화
 
 		var temp = [];
 
+		// 상위 10%중 랜덤 2개, 나머지 90%중 10개를 가져옴
 		sequelize.transaction(function(t) {
 			Recipe.count().then(function(count) {
 				if (count >= 20)
@@ -291,8 +293,13 @@ exports.handlers = handlers = {
 				sendError(res, '서버 오류');
 			});
 
-			Recipe.findAll({ where: { id: { $not: temp } }, attributes: 'id' }).then(function(results) {
-				recipes.push(_.sample(results, 10));
+			Recipe.findAll({ attributes: 'id' }).then(function(results) {
+				recipes.push(
+					_.chain(results)
+					.fileter(function(recipe) { return !_.contains(temp, recipe); })
+					.sample(10)
+				);
+
 			}).error(function(err) {
 				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류');
 				console.log(err);
@@ -312,10 +319,24 @@ exports.handlers = handlers = {
 			});
 		});
 	},
-	getRecipe: function(req, res) {},
+
+	getRecipe: function(req, res) {
+		var recipeId = req.body.recipe_id,
+			userId = req.body.user_id;
+
+		Recipe.find(recipeId).then(function(recipe) {}).error(function(err) {});
+	},
+
 	deleteRecipe: function(req, res) {},
 	updateRecipe: function(req, res) {},
-	likeRecipe: function(req, res) {},
+	likeRecipe: function(req, res) {
+		var userId = req.body.user_id,
+			recipeId = req.body.recipe_id;
+
+		Recipe.find(recipeId).then(function(recipe) {
+			if (recipe) {
+				
+	},
 	unlikeRecipe: function(req, res) {},
 	writeComment: function(req, res) {},
 	deleteComment: function(req, res) {},
