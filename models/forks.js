@@ -1,10 +1,12 @@
 module.exports = function(sequelize, DataTypes) {
 	return sequelize.define('forks', {
-		id: {
+		user_id: {
 			type: DataTypes.INTEGER,
-			allowNull: false,
-			primaryKey: true,
-			autoIncerment: true
+			unique: 'fork'
+		},
+		recipe_id: {
+			type: DataTypes.INTEGER,
+			unique: 'fork'
 		}
 	}, {
 		freezeTableName: true,

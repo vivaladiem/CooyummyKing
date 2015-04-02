@@ -331,13 +331,49 @@ exports.handlers = handlers = {
 	updateRecipe: function(req, res) {},
 	likeRecipe: function(req, res) {
 		var userId = req.body.user_id,
-			recipeId = req.body.recipe_id;
+			recipeId = req.body.recipe_id,
+			isExist = true;
 
-		Recipe.find(recipeId).then(function(recipe) {
-			if (recipe) {
-				
+		sequelize.transaction(function(t) {
+			Recipe.find(recipeId).then(function(recipe) {
+				if (!recipe) isExist = false;
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류 / recipe_id: ' + recipeId);
+				console.log(err);
+				sendError(res, '서버 오류');
+			});
+
+			User.find(userId).then(function(user) {
+				if (!user) isExist = false;
+			}).error(function(err) {
+				console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / user_id: ' + userId);
+				console.log(err);
+				sendError(res, '서버 오류');
+			});
+
+			var data = {user_id: userId, recipe_id: recipeId};
+
+			if (isExist) {
+				Like.create(data).then(function(result) {
+					//logger.info(getLogFormat(req) + 'like 등록 성공');
+					res.status(200).send({
+						result: 1
+					});
+				}).error(function(err) {
+					console.log(getLogFormat(req) + 'Like 등록 실패 Sequelize 오류 / recipe_id: ' + recipeId);
+					console.log(err);
+					sendError(res, '서버 오류');
+				});
+			} else {
+				console.log(getLogFormat(req) + '잘못된 요청');
+				sendError(res, '없는 레시피나 유저입니다.');
+			}
+		});
 	},
-	unlikeRecipe: function(req, res) {},
+
+	unlikeRecipe: function(req, res) {
+		
+	},
 	writeComment: function(req, res) {},
 	deleteComment: function(req, res) {},
 	writeQuestion: function(req, res) {},

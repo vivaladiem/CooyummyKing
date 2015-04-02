@@ -1,10 +1,12 @@
 module.exports = function(sequelize, DataTypes) {
 	return sequelize.define('likes', {
-		id: {
+		user_id: {
 			type: DataTypes.INTEGER,
-			allowNull: false,
-			primaryKey: true,
-			autoIncerment: true
+			unique: 'like'
+		},
+		recipe_id: {
+			type: DataTypes.INTEGER,
+			unique: 'like'
 		}
 	}, {
 		freezeTableName: true,

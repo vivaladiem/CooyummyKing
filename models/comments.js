@@ -1,10 +1,12 @@
 module.exports = function(sequelize, DataTypes) {
 	return sequelize.define('comments', {
-		id: {
+		user_id: {
 			type: DataTypes.INTEGER,
-			allowNull: false,
-			primaryKey: true,
-			autoIncerment: true
+			unique: 'comment'
+		},
+		recipe_id: {
+			type: DataTypes.INTEGER,
+			unique: 'comment'
 		}
 	}, {
 		freezeTableName: true,

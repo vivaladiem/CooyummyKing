@@ -1,10 +1,12 @@
 module.exports = function(sequelize, DataTypes) {
 	return sequelize.define('replies', {
-		id: {
+		user_id: {
 			type: DataTypes.INTEGER,
-			allowNull: false,
-			primaryKey: true,
-			autoIncerment: true
+			unique: 'reply'
+		},
+		question_id: {
+			type: DataTypes.INTEGER,
+			unique: 'reply'
 		}
 	}, {
 		freezeTableName: true,
