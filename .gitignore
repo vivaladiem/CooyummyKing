@@ -1,6 +1,5 @@
 *.swp
 files/
-config/
 .DS_Store
 logs/
 node_modules/

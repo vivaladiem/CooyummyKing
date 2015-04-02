@@ -72,7 +72,7 @@ require('./routes').init(app);
 
 /* start server */
 var server = app.listen(app.get('port'), function() {
-	console.log('Server Running at aws');
+	console.log('Server Running at heroku');
 });
 
 process.on('uncaughtException', function(err) {

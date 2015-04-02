@@ -8,7 +8,7 @@ exports.init = function(app) {
 	sequelize.cls = require('continuation-local-storage').createNamespace('transaction'); // transaction을 위한 설정
 	app.set('sequelize', sequelize);
 	app.set('db', this.registerAndGetModels(sequelize));
-	sequelize.sync({force: true}).success(function() {
+	sequelize.sync().success(function() {
 	}).error(function(err) {
 		console.log(err);
 	});

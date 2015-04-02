@@ -240,7 +240,7 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		User.find({ where: {user_id: userId}, attributes: token }).then(function(user) {
+		User.find({ where: {id: userId}, attributes: ['token'] }).then(function(user) {
 			if (token != user.get('token')) {
 				console.log(getLogFormat(req) + '권한 없음 / user_id: ' + userId);
 				sendError(res, '권한이 없습니다.');

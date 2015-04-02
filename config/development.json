@@ -1,0 +1,21 @@
+{
+	"db": {
+		"database": "coo",
+		"username": "ryan_db",
+		"password": "5195limyw",
+		"options": {
+			"host": "ryandbinstance.cfr2gkandsih.ap-northeast-1.rds.amazonaws.com",
+			"port": "3306",
+			"logging": false,
+			"sync": { "force": false },
+			"define": {
+				"charset": "utf8",
+				"underscored": true,
+				"timestamps": true
+			}
+		}
+	},
+	"files": {
+		"uploadDir": "/files"
+	}
+}
