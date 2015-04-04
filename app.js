@@ -65,7 +65,21 @@ app.use(function(err, req, res, next) {
 });
 
 /* set data model */
-require('./models').init(app);
+var db = app.get('config').db;
+var knex = require('knex')({
+	client: 'mysql',
+	connection: {
+		host: db.host,
+		user: db.username,
+		password: db.password,
+		database: db.database
+	},
+	pool: {
+		min: 0,
+		max: 10
+	}
+});
+app.set('knex', knex);
 
 /* set router */
 require('./routes').init(app);

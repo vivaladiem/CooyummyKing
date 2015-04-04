@@ -9,12 +9,11 @@
     "express": "~4.11.1",
     "jade": "~1.9.1",
     "morgan": "~1.5.1",
-	"mysql": "2.0.x",
-	"sequelize": "2.0.x",
-	"underscore": "*",
-	"date-utils": "1.2.x",
-	"validator": "*",
-	"formidable": "*",
-	"continuation-local-storage": "*"
+    "date-utils": "1.2.x",
+    "validator": "*",
+    "formidable": "*",
+    "mysql": "*",
+    "knex": "~0.7.6",
+    "lodash": "~3.6.0"
   }
 }

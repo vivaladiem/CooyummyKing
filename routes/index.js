@@ -2,33 +2,26 @@ var crypto = require('crypto')
 	, path = require('path')
 	, fs = require('fs')
 	, validator = require('validator')
-	, _ = require('underscore')
+	, _ = require('lodash')
 	, formidable = require('formidable')
 	, uploadDir
 	, userDir
 	, recipeDir
-	, sequelize
-	, User
-	, Recipe
-	, Comment
-	, Question
-	, Reply
-	, Like
-	, Fork
+	, knex
 	, handlers;
+
+// only for development
+var util = require('util').inspect
+var isp = function(x) {
+	console.log(util(x));
+}
+var log = console.log;
 
 exports.init = function(app) {
 	uploadDir = path.join(__dirname, '..', 'files');
 	userDir = path.join(uploadDir, 'users');
 	recipeDir = path.join(uploadDir, 'recipes');
-	sequelize = app.get('sequelize');
-	User = app.get('db').User;
-	Recipe = app.get('db').Recipe;
-	Comment = app.get('db').Comment;
-	Question = app.get('db').Question;
-	Reply = app.get('db').Reply;
-	Like = app.get('db').Like;
-	Fork = app.get('db').Fork;
+	knex = app.get('knex');
 
 	/* API */
 	app.post('/users', handlers.createUser);
@@ -39,7 +32,7 @@ exports.init = function(app) {
 	app.post('/users/:user_id/update', handlers.updateUser);
 	app.post('/recipes', handlers.createRecipe);
 	app.post('/recipes/list', handlers.getRecipeList); // 레시피 목록
-	app.post('/recipes/:recipe_id', handlers.getRecipe); // 레시피 상세보기
+	app.get('/recipes/:recipe_id', handlers.getRecipe); // 레시피 상세보기
 	app.post('/recipes/delete', handlers.deleteRecipe);
 	app.post('/recipes/update', handlers.updateRecipe);
 	app.post('/recipes/like', handlers.likeRecipe);
@@ -50,7 +43,6 @@ exports.init = function(app) {
 	app.post('/recipes/question/delete', handlers.deleteQuestion);
 	app.post('/recipes/question/reply', handlers.writeReply);
 	app.post('/recipes/question/reply/delete', handlers.deleteReply);
-
 };
 
 function sendError(res, errMsg) {
@@ -63,7 +55,9 @@ function sendError(res, errMsg) {
 function getLogFormat(req) {
 	return req.ip + ' - - "' + req.method + ' ' + req.path + '" ';
 }
-
+var encryptPassword = function(password) {
+	return crypto.createHmac('sha1', 'cymk').update(password).digest('hex');
+};
 exports.handlers = handlers = {
 	createUser: function(req, res) {
 		var email = req.body.email
@@ -80,8 +74,8 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		User.find({ where: { email: email } }).success(function(user) {
-			if (user) {
+		knex('users').count('* as count').where('email', email).first().then(function(user) {
+			if (user.count) {
 				console.log(getLogFormat(req) + '유저 생성 실패 / email: ' + email);
 				sendError(res, '이메일이 존재합니다. 해당 이메일로 로그인하시거나 다른 이메일로 가입 해주세요');
 				return;
@@ -99,6 +93,7 @@ exports.handlers = handlers = {
 			form.parse(req, function(error, fields, files) {
 				if (!files.image) return; //필요한가 모르겠다. 파일이 없으면 알아서 parse가 진행이 안되는건지.
 				profileImagePath = path.join(userDir, files.image.name);
+				console.log('profileImagePath type: ' + typeof (profileImagePath));
 				profileImageName = files.image.name;
 				fs.rename(files.image.path, profileImagePath, function(err) {
 					if (err) {
@@ -112,26 +107,25 @@ exports.handlers = handlers = {
 			var userData = {
 				email: email,
 				username: userName,
-				password: password,
+				password: encryptPassword(password),
 				token: token,
 				phone: phone,
 				profile_text: profile_text,
 				profile_image_name: profileImageName
 			};
 
-			User.create(userData).success(function(user) {
-				//logger.info(getLogFormat(req) + '유저 생성 성공 / user_id: ' + user.values.id);
-				res.status(200).send({result: 1, user_id: user.get('id')});
-			}).error(function(err) {
-				console.log(getLogFormat(req) + '유저 생성 실패 Sequelize 오류 / email: ' + email);
+			knex('users').insert(userData).then(function(result) {
+				res.status(200).send({result: 1, user_id: result});
+			}).catch(function(err) {
+				console.log(getLogFormat(req) + '유저 생성 실패 Knex 오류 / email: ' + email);
 				console.log(err);
 				fs.unlink(profileImagePath, function(err) {
 					if (err) throw err;
 				});
 				sendError(res, '서버 오류');
 			});
-		}).error(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / email: ' + email);
+		}).catch(function(err) {
+			console.log(getLogFormat(req) + '유저 조회 실패 Knex 오류 / email: ' + email);
 			console.log(err);
 			sendError(res, '서버 오류');
 		});
@@ -147,10 +141,9 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		User.find({ where: { email: email } }).success(function(user) {
+		knex('users').select('id', 'password', 'token').where('email', email).first().then(function(user) {
 			if (user) {
-				if (user.authenticate(password)) {
-					//logger.info(getLogFOrmat(req) + '유저 인증 성공 /user_id: ' + user.id);
+				if (encryptPassword(password) === user.password) {
 					res.status(200).send({
 						result: 1,
 						user_id: user.id,
@@ -164,7 +157,7 @@ exports.handlers = handlers = {
 				console.log(getLogFormat(req) + '유저 정보 없음 / email: ' + email);
 				sendError(res, '정보가 존재하지 않습니다. 회원가입 후 로그인 해주세요');
 			}
-		}).error(function(err) {
+		}).catch(function(err) {
 			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / email: ' + email);
 			console.log(err);
 			sendError(res, '서버 오류');
@@ -180,31 +173,30 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		User.find(userId).then(function(user) {
-			if (user) {
-				//logger.info(getLogFormat(req) + '유저 조회 성공 / user_id: ' + userId);
-				fs.readFile(path.join(userDir, user.get('profile_image_name')), function(err, file) {
-					if (err) {}
-					if (file) res.download(file.path);
-					res.status(200).send({
-						result: 1,
-						user: {
-							user_id: user.get('id'),
-							email: user.get('email'),
-							username: user.get('name'),
-							phone: user.get('phone'),
-							profile_text: user.get('profile_text'),
-							point: user.get('point'),
-							level: user.get('level'),
-							recipe_count: user.get('recipe_count')
-						}
-					});
-				});
-			} else {
+		var columns = ['id', 'email', 'name', 'phone', 'profile_text', 'profile_image_name', 'point', 'level', 'recipe_count', 'following_count', 'follower_count'];
+		knex('users').select(columns).where('id', userId).first().then(function(user) {
+			if (!user) {
 				console.log(getLogFormat(req) + '유저 정보 없음 / user_id: ' + userId);
 				sendError(res, '유저 정보가 없습니다');
 			}
-		}).error(function(err) {
+			//logger.info(getLogFormat(req) + '유저 조회 성공 / user_id: ' + userId);
+			res.status(200).send({
+				result: 1,
+				user: {
+					user_id: user.id,
+					email: user.email,
+					username: user.name,
+					phone: user.phone,
+					profile_text: user.profile_text,
+					profile_image_name: user.profile_image_name,
+					point: user.point,
+					level: user.level,
+					recipe_count: user.recipe_count,
+					following_count: user.following_count,
+					follower_count: user.follower_count
+				}
+			});
+		}).catch(function(err) {
 			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / user_id: ' + userId);
 			console.log(err);
 			sendError(res, '서버 오류');
@@ -212,16 +204,17 @@ exports.handlers = handlers = {
 	},
 
 	getUsersCount: function(req, res) {
-		User.count().then(function(count) {
+		console.log(knex('users').count('* as count').first().toString());
+		knex('users').count('* as count').then(function(result) {
 			res.status(200).send({
 				result: 1,
-				count: count
+				count: result[0].count
 			});
 		});
 	},
 
 	deleteUser: function(req, res) {
-
+		
 	},
 
 	updateUser: function(req, res) {},
@@ -240,8 +233,8 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		User.find({ where: {id: userId}, attributes: ['token'] }).then(function(user) {
-			if (token != user.get('token')) {
+		knex('users').select('token').where('id', userId).first().then(function(user) {
+			if (token != user.token) {
 				console.log(getLogFormat(req) + '권한 없음 / user_id: ' + userId);
 				sendError(res, '권한이 없습니다.');
 				return;
@@ -254,20 +247,20 @@ exports.handlers = handlers = {
 				cooking_time: cooking_time
 			};
 
-			Recipe.create(data).then(function(recipe) {
-				//loger.info(getLogFormat(req) + '레시피 생성 성공 / user_id: userId);
+			knex('recipes').insert(data).then(function(result) {
 				res.status(200).send({
 					result: 1,
-					recipe_id: recipe.get('id'),
-					title: recipe.get('title'),
-					description: recipe.get('description'),
-					cooking_time: recipe.get('cooking_time')
+					recipe_id: result
 				});
-			}).error(function(err) {
+			}).catch(function(err) {
 				console.log(getLogFormat(req) + '레시피 생성 실패 Sequelize 오류 / user_id: ' + userId);
 				console.log(err);
 				sendError(res, '서버 오류');
 			});
+		}).catch(function(err) {
+			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / user_id: ' + userId);
+			console.log(err);
+			sendError(res, '서버 오류');
 		});
 	},
 
@@ -278,53 +271,66 @@ exports.handlers = handlers = {
 		var temp = [];
 
 		// 상위 10%중 랜덤 2개, 나머지 90%중 10개를 가져옴
-		sequelize.transaction(function(t) {
-			Recipe.count().then(function(count) {
-				if (count >= 20)
-					topRecipeNum = parseInt(count / 10);
-			}).error(function(err) {});
+		knex('recipes').count('* as count').first().then(function(result) {
+			if (result.count >= 20)
+				topRecipeNum = parseInt(result.count / 10);
+			return topRecipeNum
+		}).then(function(topRecipeNum) {
+			return knex('recipes').select('id').orderBy('like_count', 'desc').limit(topRecipeNum).then(function(results) {
+				results = _.map(results, function(result) {
+					return result.id;
+				});
 
-			Recipe.findAll({ order: 'like DESC', limit: topRecipeNum, attributes: 'id' }).then(function(results) {
-				temp = results;
-				recipes.push(_.sample(results, 2));
-			}).error(function(err) {
-				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류');
-				console.log(err);
-				sendError(res, '서버 오류');
+				_.sample(results, 2).map(function(id) {
+					temp.push(id);
+					recipes.push(id);
+				});
+			}).then(function() {
+				return recipes;
 			});
+		}).then(function(recipes) {
+			return knex('recipes').select('id').then(function(results) {
+				results = _.map(results, function(result) {
+					return result.id;
+				});
 
-			Recipe.findAll({ attributes: 'id' }).then(function(results) {
-				recipes.push(
-					_.chain(results)
-					.fileter(function(recipe) { return !_.contains(temp, recipe); })
-					.sample(10)
-				);
-
-			}).error(function(err) {
-				console.log(getLogFormat(req) + '레시피 조회 실패 Sequelize 오류');
-				console.log(err);
-				sendError(res, '서버 오류');
+				_.chain(results)
+				.filter(function(recipe) { return !_.contains(temp, recipe); })
+				.sample(10).map(function(v) {
+					recipes.push(v);
+				});
 			});
-
-			Recipe.findAll({ where: { id: recipes } }).then(function(results) {
-				//logger.info(getLogFormat(req) + '레시피 조회 성공);
+		}).then(function() {
+			log(recipes);
+			knex('recipes').select('id', 'title', 'image_path', 'main_image_num').whereIn('id', recipes).then(function(results) {
+				//logger.info(getLogFormat(req) + '레시피 조회 성공');
 				res.status(200).send({
 					result: 1,
 					recipes: results
 				});
-			}).error(function(err) {
-				console.log(getLogFormat(Req) + '레시피 조회 실패 Sequelize 오류');
-				console.log(err);
-				sendError(res,' 서버 오류');
 			});
+		}).catch(function(err) {
+			console.log(getLogFormat(req) + '레시피 조회 실패 knex 오류');
+			console.log(err);
+			sendError(res, '서버 오류');
 		});
 	},
 
 	getRecipe: function(req, res) {
-		var recipeId = req.body.recipe_id,
-			userId = req.body.user_id;
+		var recipeId = req.params.recipe_id;
 
-		Recipe.find(recipeId).then(function(recipe) {}).error(function(err) {});
+		var columns = ['users.id as user_id', 'users.name as username', 'title', 'description', 'text_path', 'cooking_time', 'like_count', 'scrap_count'];
+		knex('recipes').join('users', 'users.id', '=', 'recipes.user_id').select(columns).where('recipes.id', recipeId).then(function(recipe) {
+			//logger.info(getLogFormat(req) + '레시피 조회 성공');
+			res.status(200).send({
+				result: 1,
+				recipe: recipe[0]
+			});
+		}).catch(function(err) {
+			console.log(getLogFormat(req) + '레시피 조회 실패 knex 오류 / recipe_id: ' + recipeId);
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
 	},
 
 	deleteRecipe: function(req, res) {},
@@ -334,6 +340,28 @@ exports.handlers = handlers = {
 			recipeId = req.body.recipe_id,
 			isExist = true;
 
+		knex('recipes').count('* as count').where('id', recipeId).then(function(result) {
+			if (!result[0].count) isExist = false;
+		}).then(function() {
+			return knex('users').count('* as count').where('id', userId).then(function(result) {
+				if (!result[0].count) isExist = false;
+			})
+		}).then(function() {
+			var data = {user_id: userId, recipe_id: recipeId};
+
+			if (isExist) {
+				knex('likes').insert(data).then(function(result) {
+					res.status(200).send({
+						result: 1
+					});
+				});
+			}
+		}).catch(function(err) {
+			console.log(err);
+			sendError(res, '서버 오류');
+		});
+
+		/*
 		sequelize.transaction(function(t) {
 			Recipe.find(recipeId).then(function(recipe) {
 				if (!recipe) isExist = false;
@@ -369,6 +397,7 @@ exports.handlers = handlers = {
 				sendError(res, '없는 레시피나 유저입니다.');
 			}
 		});
+		*/
 	},
 
 	unlikeRecipe: function(req, res) {

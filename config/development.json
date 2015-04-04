@@ -3,8 +3,8 @@
 		"database": "coo",
 		"username": "ryan_db",
 		"password": "5195limyw",
+		"host": "ryandbinstance.cfr2gkandsih.ap-northeast-1.rds.amazonaws.com",
 		"options": {
-			"host": "ryandbinstance.cfr2gkandsih.ap-northeast-1.rds.amazonaws.com",
 			"port": "3306",
 			"logging": false,
 			"sync": { "force": false },
