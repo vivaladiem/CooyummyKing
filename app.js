@@ -4,7 +4,9 @@ var express = require('express')
 	, cookieParser = require('cookie-parser')
 	, bodyParser = require('body-parser')
 	, fs = require('fs')
-	, uploadDir = __dirname + '/files/users'
+	, uploadDir = __dirname + '/files'
+	, userDir = __dirname + '/files/users'
+	, recipeDir = __dirname + '/files/recipes'
 	, battleUploadDir = __dirname + '/files/battles'
 	, app = express();
 
@@ -22,13 +24,14 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.set('uploadDir', uploadDir);
+app.set('userDir', userDir);
+app.set('recipeDir', recipeDir);
 // app.set('battleUploadDir', battleUploadDir);
 
 fs.exists(uploadDir, function(exist) {
-	if (!exist) {
-		fs.mkdir(uploadDir);
-	}
+	if (!exist) fs.mkdir(uploadDir);
+	fs.exists(userDir, function(exist) { if (!exist) fs.mkdir(userDir); });
+	fs.exists(recipeDir, function(exist) { if (!exist) fs.mkdir(recipeDir); });
 });
 
 /*
