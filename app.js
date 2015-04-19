@@ -3,11 +3,11 @@ var express = require('express')
 	, logger = require('morgan')
 	, cookieParser = require('cookie-parser')
 	, bodyParser = require('body-parser')
-	, fs = require('fs')
+	, ffs = require('final-fs')
 	, uploadDir = __dirname + '/files'
-	, userDir = __dirname + '/files/users'
-	, recipeDir = __dirname + '/files/recipes'
-	, battleUploadDir = __dirname + '/files/battles'
+	, usersDir = __dirname + '/files/users'
+	, recipesDir = __dirname + '/files/recipes'
+	, battlesDir = __dirname + '/files/battles'
 	, app = express();
 
 /* set local develop environment */
@@ -24,15 +24,13 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.set('userDir', userDir);
-app.set('recipeDir', recipeDir);
+app.set('usersDir', usersDir);
+app.set('recipesDir', recipesDir);
 // app.set('battleUploadDir', battleUploadDir);
 
-fs.exists(uploadDir, function(exist) {
-	if (!exist) fs.mkdir(uploadDir);
-	fs.exists(userDir, function(exist) { if (!exist) fs.mkdir(userDir); });
-	fs.exists(recipeDir, function(exist) { if (!exist) fs.mkdir(recipeDir); });
-});
+ffs.mkdirRecursive(usersDir);
+ffs.mkdirRecursive(recipesDir);
+ffs.mkdirRecursive(battlesDir);
 
 /*
 // catch 404 and forward to error handler

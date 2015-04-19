@@ -1,12 +1,11 @@
 var crypto = require('crypto')
 	, path = require('path')
-	, fs = require('fs')
+	, ffs = require('final-fs')
 	, validator = require('validator')
 	, _ = require('lodash')
 	, formidable = require('formidable')
-	, uploadDir
-	, userDir
-	, recipeDir
+	, usersDir
+	, recipesDir
 	, knex
 	, handlers;
 
@@ -17,8 +16,8 @@ var isp = function(x) {
 var log = console.log;
 
 exports.init = function(app) {
-	userDir = app.get('userDir');
-	recipeDir = app.get('recipeDir');
+	usersDir = app.get('usersDir');
+	recipesDir = app.get('recipesDir');
 	knex = app.get('knex');
 
 	/* API */
@@ -43,6 +42,7 @@ exports.init = function(app) {
 	app.post('/recipes/question/delete', handlers.deleteQuestion);
 	app.post('/recipes/question/reply', handlers.writeReply);
 	app.post('/recipes/question/reply/delete', handlers.deleteReply);
+	app.get('/recipes/:recipe_id/images', handlers.recipeImageDownload);
 };
 
 function sendError(res, errMsg) {
@@ -62,13 +62,12 @@ function encryptPassword(password) {
 
 exports.handlers = handlers = {
 	createUser: function(req, res) {
-		var email = req.body.email
+		var email = req.body.email || 'mail' + Math.floor((Math.random() * 100000) + 1) + '@test.com'
 			, userName = req.body.username
 			, password = req.body.password
 			, phone = req.body.phone
 			, profile_text = req.body.profile_text
-			, profileImagePath
-			, profileImageName;
+			, profileImagePath;
 
 		if (!validator.isEmail(email) || validator.isNull(userName) || validator.isNull(password)) {
 			console.log(getLogFormat(req) + '잘못된 요청 / email: ' + email);
@@ -88,40 +87,37 @@ exports.handlers = handlers = {
 			.update(email + (new Date()).getTime() + 'cymk')
 			.digest('hex');
 
-			/* 프로필 이미지를 저장합니다 */
-			var form = formidable.IncomingForm();
-			//form.keepExtensions = true;
-			form.uploadDir = uploadDir
-			form.parse(req, function(error, fields, files) {
-				if (!files.image) return; //필요한가 모르겠다. 파일이 없으면 알아서 parse가 진행이 안되는건지.
-				profileImagePath = path.join(userDir, files.image.name);
-				console.log('profileImagePath type: ' + typeof (profileImagePath));
-				profileImageName = files.image.name;
-				fs.rename(files.image.path, profileImagePath, function(err) {
-					if (err) {
-						profileImageName = null;
-						throw err;
-					}
-					//logger.info(getLogFormat(req) + '파일 저장 완료');
-				});
-			});
-
 			var userData = {
 				email: email,
-				username: userName,
+				name: userName,
 				password: encryptPassword(password),
 				token: token,
 				phone: phone,
-				profile_text: profile_text,
-				profile_image_name: profileImageName
+				profile_text: profile_text
 			};
 
 			knex('users').insert(userData).then(function(result) {
-				res.status(200).send({result: 1, user_id: result});
+				// 프로필 이미지를 저장합니다
+				var form = formidable.IncomingForm();
+				form.keepExtensions = true;
+				form.uploadDir = usersDir;
+				form.parse(req, function(error, fields, files) {
+					var file = files.profile;
+					var fileExtension = file.name.split('.').pop();
+					profileImagePath = path.join(usersDir, result[0] + '.' + fileExtension);
+					ffs.rename(file.path, profileImagePath).otherwise(function(err) {
+						if (err) throw err;
+					});
+				});
+
+				res.status(200).send({
+					result: 1, 
+					user_id: result
+				});
 			}).catch(function(err) {
 				console.log(getLogFormat(req) + '유저 생성 실패 Knex 오류 / email: ' + email);
 				console.log(err);
-				fs.unlink(profileImagePath, function(err) {
+				ffs.unlink(profileImagePath).otherwise(function(err) {
 					if (err) throw err;
 				});
 				sendError(res, '서버 오류');
@@ -175,7 +171,7 @@ exports.handlers = handlers = {
 			return;
 		}
 
-		var columns = ['id', 'email', 'name', 'phone', 'profile_text', 'profile_image_name', 'point', 'level', 'recipe_count', 'following_count', 'follower_count'];
+		var columns = ['id', 'email', 'name', 'phone', 'profile_text', 'point', 'level', 'recipe_count', 'following_count', 'follower_count'];
 		knex('users').select(columns).where('id', userId).first().then(function(user) {
 			if (!user) {
 				console.log(getLogFormat(req) + '유저 정보 없음 / user_id: ' + userId);
@@ -190,7 +186,6 @@ exports.handlers = handlers = {
 					username: user.name,
 					phone: user.phone,
 					profile_text: user.profile_text,
-					profile_image_name: user.profile_image_name,
 					point: user.point,
 					level: user.level,
 					recipe_count: user.recipe_count,
@@ -226,68 +221,113 @@ exports.handlers = handlers = {
 	getFollowingUsers: function(req, res) {},
 
 	createRecipe: function(req, res) {
-		var userId = req.body.user_id,
-			token = req.body.token,
-			title = req.body.title,
+		var userId = req.body.user_id || _.sample(_.range(15, 246)),
+			token = req.body.token || '81a5f198c40efe2ccb82f53942c84a38',
+			title = req.body.title || 'title',
 			description = req.body.description,
-			text = req.body.text,
-			mainImage = parseInt(req.body.mainimage),
-			cooking_time = parseInt(req.body.cooking_time),
-			resultCode = 1;
+			text = req.body.text || 'a, b, c',
+			mainImageNum = parseInt(req.body.mainimage) || 1,
+			cooking_time = parseInt(req.body.cooking_time) || 10,
+			imageLength = null,
+			textLength = null,
+			recipeId = null,
+			images = {},
+			errMsg = [];
 
 		if (!validator.isNumeric(userId) || validator.isNull(title)) {
 			console.log(getLogFormat(req) + '잘못된 요청 / user_id: ' + userId);
-			sendError(res, '잘못된 요청입니다');
-			return;
+			//sendError(res, '잘못된 요청입니다');
+			//return;
 		}
 
 		knex('users').select('token').where('id', userId).first().then(function(user) {
 			if (token != user.token) {
 				console.log(getLogFormat(req) + '권한 없음 / user_id: ' + userId);
-				sendError(res, '권한이 없습니다.');
-				return;
+				//sendError(res, '권한이 없습니다.');
+				//return;
 			}
-
+			// 이미지를 임시폴더에 업로드하고 갯수를 가져옵니다.
 			var form = formidable.IncomingForm();
+			form.uploadDir = recipesDir;
 			form.keepExtensions = true;
-			form.uploadDir = recipeDir;
 			form.parse(req, function(error, fields, files) {
-				if (error) resultCode = 2;
-				if (!files.image) return;
-				if (mainImage > files.length) {
-					mainImage = files.length;
-					//errMsg = '메인이미지 지정에 오류가 있습니다';
+				imageLength = _.size(files);
+				if (imageLength = 0) return;
+				if (error) {
+					if (error.toString().indexOf('aborted')) return;
+					console.log('파일 저장 실패 formidable 오류');
+					//console.log('formidable error > ' + error);
+					errMsg.push('이미지 저장에 실패하였습니다. 수정을 통해 다시 등록해주세요');
+					return;
 				}
-				_.forEach(files, function(file) {
-					profileImagePath = path.join(userDir, file.image.name);
-					profileImageName = file.image.name;
-					fs.rename(file.image.path, profileImgaePath, function(err) {
+				if (mainImageNum > imageLength) {
+					mainImageNum = imageLength;
+					log('메인이미지 지정에 오류가 있습니다');
+					errMsg.push('메인이미지 지정에 오류가 있습니다. 마지막 이미지를 메인이미지로 지정합니다.');
+				}
+				_.forEach(files, function(file, index) {
+					images[index] = file.path;
+				});
+
+				// 텍스트파일의 갯수를 가져옵니다.
+				var textArray = text.split(',').map(function(text) { return text.toString().trim(); });
+				textLength = _.size(textArray);
+
+				var data = {
+					user_id: userId,
+					title: title,
+					description: description,
+					text_length: textLength,
+					image_length: imageLength,
+					main_image_num: mainImageNum,
+					cooking_time: cooking_time
+				};
+
+				knex('recipes').insert(data).then(function(result) {
+					var recipeDir = path.join(recipesDir, result[0].toString());
+					ffs.mkdirRecursive(recipeDir).then(function() {
+						// 이미지를 제자리에 옮깁니다.
+						// [TODO] 예외처리 필요
+						_.forEach(images, function(file, index) {
+							var fileExtension = file.split('.').pop();
+							var filePath = path.join(recipeDir, index + '.' + fileExtension);
+							ffs.rename(file, filePath).otherwise(function(err) {
+								throw err;
+							});
+						});
+
+						// 텍스트를 파일로 저장합니다.
+						// [TODO] 예외처리 필요
+						_.forEach(textArray, function(text, index) {
+							var filePath = path.join(recipeDir, (index + 1) + '.txt');
+							ffs.writeFile(filePath, text).otherwise(function(err) {
+								console.log(getLogFormat(req) + '텍스트파일 저장 실패 final-fs 오류');
+								console.log(err);
+								errMsg.push('설명 저장에 실패하였습니다. 수정기능으로 다시 작성해주세요');
+								ffs.unlink(filePath).otherwise(function(err) { throw err });
+							});
+						});
+
+						res.status(200).send({
+							result: 1,
+							recipe_id: result[0],
+							error_msg: errMsg || null
+						});
+					}).otherwise(function(err) {
 						if (err) {
-							profileImageName = null;
-							throw err;
+							console.log(getLogFormat(req) + '폴더 생성 실패');
+							console.log(err);
 						}
 					});
-				});
-			});
 
-			var data = {
-				user_id: userId,
-				title: title,
-				description: description,
-				main_image_num: mainImage,
-				cooking_time: cooking_time
-			};
-
-			knex('recipes').insert(data).then(function(result) {
-				res.status(200).send({
-					result: 1,
-					recipe_id: result
-					//error_msg: errMsg
+				}).catch(function(err) {
+					console.log(getLogFormat(req) + '레시피 생성 실패 Sequelize 오류 / user_id: ' + userId);
+					console.log(err);
+					for (var file in files) {
+						ffs.unlink(file).otherwise(function(err) { console.log(err) });
+					}
+					sendError(res, '서버 오류로 인해 레시피를 생성하지 못했습니다. 다시 시도해주세요');
 				});
-			}).catch(function(err) {
-				console.log(getLogFormat(req) + '레시피 생성 실패 Sequelize 오류 / user_id: ' + userId);
-				console.log(err);
-				sendError(res, '서버 오류');
 			});
 		}).catch(function(err) {
 			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / user_id: ' + userId);
@@ -302,7 +342,7 @@ exports.handlers = handlers = {
 			results = results[0][0];
 			results = _.pluck(results, 'id');
 
-			knex('recipes').select('id', 'title', 'image_path', 'main_image_num').whereIn('id', results).then(function(recipes) {
+			knex('recipes').select('id', 'title', 'main_image_num').whereIn('id', results).then(function(recipes) {
 				res.status(200).send({
 					result: 1,
 					recipes: recipes
@@ -322,7 +362,7 @@ exports.handlers = handlers = {
 	getRecipe: function(req, res) {
 		var recipeId = req.params.recipe_id;
 
-		var columns = ['users.id as user_id', 'users.name as username', 'title', 'description', 'text_path', 'cooking_time', 'like_count', 'scrap_count'];
+		var columns = ['users.id as user_id', 'users.name as username', 'title', 'description', 'cooking_time', 'like_count', 'scrap_count'];
 		knex('recipes').join('users', 'users.id', '=', 'recipes.user_id').select(columns).where('recipes.id', recipeId).first().then(function(recipe) {
 			//logger.info(getLogFormat(req) + '레시피 조회 성공');
 			res.status(200).send({
@@ -376,7 +416,7 @@ exports.handlers = handlers = {
 		var userId = req.body.user_id,
 			recipeId = req.body.recipe_id,
 			comment = req.body.comment;
-		
+
 		if (!validator.isNumeric(userId)) {
 			console.log(getLogFormat(req) + '잘못된 요청 / user_id: ' + userId);
 			sendError(res, '잘못된 요청입니다');
@@ -445,5 +485,18 @@ exports.handlers = handlers = {
 	writeQuestion: function(req, res) {},
 	deleteQuestion: function(req, res) {},
 	writeReply: function(req, res) {},
-	deleteReply: function(req, res) {}
+	deleteReply: function(req, res) {},
+	recipeImageDownload: function(req, res) {
+		var recipeId = req.params.recipe_id;
+		var imagePath = path.join(recipesDir, recipeId);
+		ffs.dirFiles(imagePath).then(function(files) {
+			_.map(files, ffs.readFile, function(results) {
+				log('async.map 실행');
+				log(results);
+				res.sendFile(results);
+			}).otherwise(function(err) {
+				log(err);
+			});
+		});
+	}
 }
