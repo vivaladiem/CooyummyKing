@@ -32,8 +32,8 @@ ffs.mkdirRecursive(usersDir);
 ffs.mkdirRecursive(recipesDir);
 ffs.mkdirRecursive(battlesDir);
 
-/*
 // catch 404 and forward to error handler
+/*
 app.use(function(req, res, next) {
     var err = new Error('Not Found');
     err.status = 404;
@@ -91,5 +91,6 @@ var server = app.listen(app.get('port'), function() {
 });
 
 process.on('uncaughtException', function(err) {
+	console.log('uncaughtException 발생');
 	console.error(err.stack);
 });

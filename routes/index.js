@@ -4,6 +4,7 @@ var crypto = require('crypto')
 	, validator = require('validator')
 	, _ = require('lodash')
 	, formidable = require('formidable')
+	, gm = require('gm')
 	, usersDir
 	, recipesDir
 	, knex
@@ -63,9 +64,9 @@ function encryptPassword(password) {
 exports.handlers = handlers = {
 	createUser: function(req, res) {
 		var email = req.body.email || 'mail' + Math.floor((Math.random() * 100000) + 1) + '@test.com'
-			, userName = req.body.username
-			, password = req.body.password
-			, phone = req.body.phone
+			, userName = req.body.username || 'name'
+			, password = req.body.password || 'password'
+			, phone = req.body.phone || '01012341234'
 			, profile_text = req.body.profile_text
 			, profileImagePath;
 
@@ -102,10 +103,17 @@ exports.handlers = handlers = {
 				form.keepExtensions = true;
 				form.uploadDir = usersDir;
 				form.parse(req, function(error, fields, files) {
+					if (error) {
+						console.log(error);
+						return;
+					}
+
 					var file = files.profile;
 					var fileExtension = file.name.split('.').pop();
 					profileImagePath = path.join(usersDir, result[0] + '.' + fileExtension);
-					ffs.rename(file.path, profileImagePath).otherwise(function(err) {
+					ffs.rename(file.path, profileImagePath).then(function() {
+						gm(profileImagePath).resize(120, 120).noProfile().write(profileImagePath, function(err) { if (err) throw err; });
+					}).otherwise(function(err) {
 						if (err) throw err;
 					});
 				});
@@ -117,9 +125,6 @@ exports.handlers = handlers = {
 			}).catch(function(err) {
 				console.log(getLogFormat(req) + '유저 생성 실패 Knex 오류 / email: ' + email);
 				console.log(err);
-				ffs.unlink(profileImagePath).otherwise(function(err) {
-					if (err) throw err;
-				});
 				sendError(res, '서버 오류');
 			});
 		}).catch(function(err) {
@@ -156,7 +161,7 @@ exports.handlers = handlers = {
 				sendError(res, '정보가 존재하지 않습니다. 회원가입 후 로그인 해주세요');
 			}
 		}).catch(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / email: ' + email);
+			console.log(getLogFormat(req) + '유저 조회 실패 knex 오류 / email: ' + email);
 			console.log(err);
 			sendError(res, '서버 오류');
 		});
@@ -194,7 +199,7 @@ exports.handlers = handlers = {
 				}
 			});
 		}).catch(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 sequelize 오류 / user_id: ' + userId);
+			console.log(getLogFormat(req) + '유저 조회 실패 knex 오류 / user_id: ' + userId);
 			console.log(err);
 			sendError(res, '서버 오류');
 		});
@@ -260,7 +265,7 @@ exports.handlers = handlers = {
 					errMsg.push('이미지 저장에 실패하였습니다. 수정을 통해 다시 등록해주세요');
 					return;
 				}
-				if (mainImageNum > imageLength) {
+				if (mainImageNum > imageLength || mainImageNum == null) {
 					mainImageNum = imageLength;
 					log('메인이미지 지정에 오류가 있습니다');
 					errMsg.push('메인이미지 지정에 오류가 있습니다. 마지막 이미지를 메인이미지로 지정합니다.');
@@ -321,16 +326,16 @@ exports.handlers = handlers = {
 					});
 
 				}).catch(function(err) {
-					console.log(getLogFormat(req) + '레시피 생성 실패 Sequelize 오류 / user_id: ' + userId);
+					console.log(getLogFormat(req) + '레시피 생성 실패 knex 오류 / user_id: ' + userId);
 					console.log(err);
-					for (var file in files) {
+					_.forEach(images, function(file) {
 						ffs.unlink(file).otherwise(function(err) { console.log(err) });
-					}
+					});
 					sendError(res, '서버 오류로 인해 레시피를 생성하지 못했습니다. 다시 시도해주세요');
 				});
 			});
 		}).catch(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 Sequelize 오류 / user_id: ' + userId);
+			console.log(getLogFormat(req) + '유저 조회 실패 knex 오류 / user_id: ' + userId);
 			console.log(err);
 			sendError(res, '서버 오류');
 		});
