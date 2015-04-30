@@ -3,12 +3,13 @@ var express = require('express')
 	, logger = require('morgan')
 	, cookieParser = require('cookie-parser')
 	, bodyParser = require('body-parser')
-	, ffs = require('final-fs')
+	, mkdirp = require('mkdirp')
 	, uploadDir = __dirname + '/files'
 	, usersDir = __dirname + '/files/users'
 	, recipesDir = __dirname + '/files/recipes'
 	, battlesDir = __dirname + '/files/battles'
 	, app = express();
+
 
 /* set local develop environment */
 app.set('config', require('./config/development.json'));
@@ -28,9 +29,14 @@ app.set('usersDir', usersDir);
 app.set('recipesDir', recipesDir);
 // app.set('battleUploadDir', battleUploadDir);
 
+/*
 ffs.mkdirRecursive(usersDir);
 ffs.mkdirRecursive(recipesDir);
 ffs.mkdirRecursive(battlesDir);
+*/
+mkdirp(usersDir, function(err) { if (err) console.log(err) });
+mkdirp(recipesDir, function(err) { if(err) console.log(err) });
+mkdirp(battlesDir, function(err) { if (err) console.log(err) });
 
 // catch 404 and forward to error handler
 /*
