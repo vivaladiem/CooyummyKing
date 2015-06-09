@@ -65,6 +65,11 @@ function encryptPassword(password) {
 	return crypto.createHmac('sha1', 'cymk').update(password).digest('hex');
 }
 
+// TODO 시간대는 +0:00 으로 놔두고, 서비스 국가에 맞춰 자동으로 시간을 조절하는 기능을 만들어 사용해야 아 이건 클라이언트에서 하는게 좋으려나
+// TODO 글 언어별로 제공해야
+// TODO 멀티스레드가 의미가 있는지 잘 모르겠지만, 이점이 있다면 사용해야
+// TODO delay 심한 곳 체크해서 해결해야
+
 exports.handlers = handlers = {
 	createUser: function(req, res) {
 		var email = req.body.email || 'mail' + Math.floor((Math.random() * 100000) + 1) + '@test.com'
@@ -228,146 +233,11 @@ exports.handlers = handlers = {
 
 	getFollowingUsers: function(req, res) {},
 
-	createRecipebak: function(req, res) {//{{{
-		var userId = req.body.user_id || _.sample(_.range(316, 355)),
-			token = req.body.token || '81a5f198c40efe2ccb82f53942c84a38',
-			title = req.body.title || '사과식빵피자',
-			inst = req.body.instruction || '맛있겠다!||만들어보자||재료를 준비한다||만든다||빠밤||먹는다+_+',
-			mainImageIndex = parseInt(req.body.mainimage) || 1,
-			cooking_time = parseInt(req.body.cooking_time) || 10,
-			theme = req.body.theme,
-			ingredient = req.body.ingredient,
-			source = req.body.source,
-
-			imageLength = null,
-			recipeId = null,
-			images = {},
-			orgImgs = {}, // 편집 안된 원본 이미지도 함께 저장합니다
-			errMsg = [];
-
-		log("title : " + req.body.title);
-		log("inst : " + req.body.instruction);
-		log("mainImage : " + req.body.mainImage);
-		log("cooking time : " + req.body.cooking_time);
-		log("theme : " + theme);
-		log("ingredient : " + ingredient);
-		log("source : " + source);
-
-		if (!validator.isNumeric(userId) || validator.isNull(title)) {
-			console.log(getLogFormat(req) + '잘못된 요청 / user_id: ' + userId);
-			//sendError(res, '잘못된 요청입니다');
-			//return;
-		}
-
-		knex('users').select('token').where('id', userId).first().then(function(user) {
-			if (token != user.token) {
-				console.log(getLogFormat(req) + '권한 없음 / user_id: ' + userId);
-				//sendError(res, '권한이 없습니다.');
-				//return;
-			}
-
-			// 이미지를 임시폴더에 업로드하고 갯수를 가져옵니다.
-			var form = formidable.IncomingForm();
-			form.uploadDir = recipesDir;
-			//form.keepExtensions = false; // default: false
-			form.parse(req, function(error, fields, files) {
-
-				_.forEach(files, function(file, index) {
-					// index 앞에 o가 붙어있으면 original -> 원본 이미지. 따로 orgImgs에 모아두었다가 기본사이즈로 저장한다.
-					//if (index.search("original") != -1) {
-					//	orgImgs[index] = file.path;
-					//} else {
-					//	images[index] = file.path;
-					//	imageLength++;
-					//}
-					if (index.search("original") == -1) imageLength++;
-					images[index] = file.path;
-				});
-
-				log("imageLength : " + imageLength);
-
-				if (imageLength == 0) return;
-
-				if (error) {
-					if (error.toString().indexOf('aborted')) return;
-					console.log('파일 저장 실패 formidable 오류');
-					//console.log('formidable error > ' + error);
-					errMsg.push('이미지 저장에 실패하였습니다. 수정을 통해 다시 등록해주세요');
-					return;
-				}
-
-				if (mainImageIndex >= imageLength || mainImageIndex == null) {
-					mainImageIndex = imageLength - 1;
-					log('메인이미지 지정에 오류가 있습니다');
-					errMsg.push('메인이미지 지정에 오류가 있습니다. 마지막 이미지를 메인이미지로 지정합니다.');
-				}
-
-
-
-				var data = {
-					user_id: userId,
-					title: title,
-					instruction: inst,
-					text_length: textLength,
-					image_length: imageLength,
-					main_image_index: mainImageIndex,
-					cooking_time: cooking_time,
-					theme: theme,
-					ingredient: ingredient,
-					source: source
-				};
-
-				knex('recipes').insert(data).then(function(result) {
-					var recipeId = result[0];
-					var recipeDir = path.join(recipesDir, recipeId.toString());
-					fs.mkdirAsync(recipeDir) .then(function() {
-						// 이미지를 제자리에 옮깁니다.
-						// [TODO] 예외처리 필요
-						var imageDir = path.join(recipeDir, 'images');
-						return fs.mkdirAsync(imageDir).then(function() {
-							_.forEach(images, function(file, index) {
-								/*
-								   var fileExtension = file.split('.').pop();
-								   var filePath = path.join(recipeDir, index + '.' + fileExtension);
-								   */
-								var filePath = path.join(imageDir, index);
-								fs.renameAsync(file, filePath).catch(function(err) {
-									log("레시피 " + recipeId + " - " + index + " : " + file);
-									isp(err);
-									throw err;
-								});
-							});
-						})
-					})
-					.then(function() {
-						res.status(200).send({
-							result: 1,
-							recipe_id: result[0],
-							error_msg: errMsg || null
-						});
-					}).catch(function(err) {
-						if (err) {
-							console.log(getLogFormat(req) + '폴더 생성 실패');
-							console.log(err);
-							sendError(res, '서버 오류로 인해 레시피를 생성하지 못했습니다. 다시 시도해주세요');
-						}
-					});
-				}).catch(function(err) {
-					console.log(getLogFormat(req) + '레시피 생성 실패 knex 오류 / user_id: ' + userId);
-					console.log(err);
-					_.forEach(images, function(file) { // 보통 function(file, index) 인데 file 하나만 해도 되는건가? 아님 그게 아니어서 자꾸 삭제가 안된거였나?
-						fs.unlinkAsync(file).catch(function(err) { console.log(err) });
-					});
-					sendError(res, '서버 오류로 인해 레시피를 생성하지 못했습니다. 다시 시도해주세요');
-				});
-			});
-		}).catch(function(err) {
-			console.log(getLogFormat(req) + '유저 조회 실패 knex 오류 / user_id: ' + userId);
-			console.log(err);
-			sendError(res, '서버 오류');
-		});
-	},//}}}
-
+	// TODO 파일을 한 번에 처리하니 좀 느리다. 따로 처리하고 클라이언트에선 두 가지 요청에 응답을 모두 받았을 때 정상처리로 처리하는게 어떤가 싶음
+	// imageLength는 뭐 클라이언트에서 인자로 주면 되니까.
+	// 하나가 잘못되면 나머지를 다 취소해야 하는게 문제.. 아니.. 그럴필요는 없나? 그냥 다시 업로드하라고만 알려주면 되니까? 파일만큼은 삭제해야겠지만
+	// 지금 이건 평행하게 진행되는게 어디까진지 잘 모르겠다아.
+	// 아 시간없다 나중에
 	createRecipe: function(req, res) {
 		var form = formidable.IncomingForm();
 		form.uploadDir = recipesDir;
@@ -383,13 +253,20 @@ exports.handlers = handlers = {
 				ingredient = fields.ingredient || req.body.ingredient,
 				source = fields.source || req.body.source,
 
-				imageLength = 0,
+				imageLength = files.size,
 				recipeId = null,
 				images = {},
 				orgImgs = {}, // 편집 안된 원본 이미지도 함께 저장합니다
 				errMsg = [];
 
-			if (files.size == 0) {
+			if (error) {
+				if (error.toString().indexOf('aborted')) return;
+				console.log('파일 저장 실패 formidable 오류');
+				console.log('formidable error > ' + error);
+				errMsg.push('이미지 저장에 실패하였습니다. 수정을 통해 다시 등록해주세요');
+			}
+
+			if (imageLength == 0) {
 				console.log(getLogFormat(req) + '이미지가 없습니다 / user_id: ' + userId);
 				sendError(res, '이미지가 없습니다.');
 				return;
@@ -410,18 +287,10 @@ exports.handlers = handlers = {
 
 				// 이미지를 임시폴더에 업로드하고 갯수를 가져옵니다.
 				_.forEach(files, function(file, index) {
-					if (index.search("original") == -1) imageLength++;
+					//if (index.search("org") == -1) imageLength++; // 원본이 아닌 것만 카운트합니다.
 					images[index] = file.path;
 				});
 
-				// 여기있으면 안좋을텐데 어디다가 놓을지..
-				if (error) {
-					if (error.toString().indexOf('aborted')) return; // 이러면 계속 응답 대기상태가 되지 않나..? 아 사용자가 취소한거니 괜찮은가보다
-					console.log('파일 저장 실패 formidable 오류');
-					console.log('formidable error > ' + error);
-					errMsg.push('이미지 저장에 실패하였습니다. 수정을 통해 다시 등록해주세요');
-					return;
-				}
 
 				if (mainImageIndex >= imageLength || mainImageIndex == null) {
 					mainImageIndex = imageLength - 1;
@@ -433,7 +302,7 @@ exports.handlers = handlers = {
 					user_id: userId,
 					title: title,
 					instruction: inst,
-					image_length: parseInt(req.body.cooking_time),
+					image_length: imageLength,
 					main_image_index: mainImageIndex,
 					cooking_time: cooking_time,
 					theme: theme,
@@ -451,7 +320,11 @@ exports.handlers = handlers = {
 						return fs.mkdirAsync(imageDir).then(function() {
 							_.forEach(images, function(file, index) {
 								var filePath = path.join(imageDir, index);
-								fs.renameAsync(file, filePath).catch(function(err) {
+								fs.renameAsync(file, filePath).then(function() {
+									//if (index.search("org") != -1) return;
+									gm(filePath).resize(240, 240).quality(80).write(filePath + "_sm", function(err) {if (err) console.log(err);});
+									gm(filePath).resize(480, 480).quality(80).write(filePath + "_md", function(err) {if (err) console.log(err);});
+								}).catch(function(err) {
 									log("레시피 " + recipeId + " - " + index + " : " + file);
 									isp(err);
 									throw err;
@@ -516,12 +389,13 @@ exports.handlers = handlers = {
 		var recipeId = req.params.recipe_id;
 		var userId = req.params.user_id;
 
-		var columns = ['users.id as user_id', 'users.name as username', 'instruction', 'cooking_time', 'theme', 'ingredient', 'source', 'like_count', 'scrap_count', 'text_length'];
+		var columns = ['users.id as user_id', 'users.name as username', 'instruction', 'cooking_time', 'theme', 'ingredient', 'source', 'like_count', 'scrap_count'];
 		knex('recipes').join('users', 'users.id', '=', 'recipes.user_id').select(columns).where('recipes.id', recipeId).first().then(function(recipe) {
 			if (userId == recipe.user_id) {
 				recipe.type = 'MY';
 			}
 			//logger.info(getLogFormat(req) + '레시피 조회 성공');
+			log("is ingredient equals 'null'? : " + ("null" == recipe.ingredient));
 			res.status(200).send({
 				result: 1,
 				recipe: recipe
